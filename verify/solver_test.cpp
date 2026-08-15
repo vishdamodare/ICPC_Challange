@@ -603,7 +603,7 @@ public:
 };
 
 // ============================================================================
-// 5. SCHEDULING STRATEGY (OPTIMIZED PREFILL-FIRST PRIORITY)
+// 5. SCHEDULING STRATEGY (V2 GREEDY BATCH)
 // ============================================================================
 
 class SchedulingStrategy {
