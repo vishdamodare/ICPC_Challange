@@ -70,7 +70,7 @@ public:
                 int k = atoi(ev.server + 1);
                 if (k >= 0 && k < sysConfig.K) cloudServers[k].busy = false;
             }
-            const char* ptr = ev.task_spec;
+            const char* ptr = ev.task_spec.c_str();
             while (*ptr && *ptr <= ' ') ptr++;
             if (ptr[0] == 'P') {
                 ptr++; while (*ptr && *ptr <= ' ') ptr++;

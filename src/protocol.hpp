@@ -35,15 +35,15 @@ struct Event {
     EventType type;
     int rid = -1;
     int Lin = 0;
-    char server[8] = {0};
-    char task_spec[64] = {0};
+    char server[32] = {0};
+    std::string task_spec;
     double dur = 0.0;
     char direction[8] = {0};
     int remote = -1;
     long long size = 0;
     char stage_tag[8] = {0};
     int m = 0;
-    int rids[64] = {0};
+    std::vector<int> rids;
 };
 
 struct FrameContext {

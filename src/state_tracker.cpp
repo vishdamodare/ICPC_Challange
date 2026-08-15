@@ -1,7 +1,6 @@
 #include "state_tracker.hpp"
-#include <sstream>
-#include <iostream>
 #include <algorithm>
+#include <iostream>
 #include <cstring>
 
 static inline int fastParseInt(const char*& p) {
@@ -29,10 +28,12 @@ static inline void removeFromVec(std::vector<int>& vec, int val) {
 void StateTracker::init(const SystemConfig& sys) {
     sysConfig = sys;
     edgeServer.busy = false;
+    
     cloudServers.resize(sys.K);
     for (int k = 0; k < sys.K; ++k) {
         cloudServers[k].busy = false;
     }
+    
     requests.clear();
     pPreReadyList.clear();
     pPostReadyList.clear();
@@ -42,12 +43,11 @@ void StateTracker::init(const SystemConfig& sys) {
     dProcReadyList.assign(sys.K, {});
 }
 
-void StateTracker::rebuildReadinessLists() {
-    // No-op: readiness lists are maintained incrementally in O(1) on event commits
-}
+void StateTracker::rebuildReadinessLists() {}
 
 void StateTracker::processFrame(const FrameContext& frame) {
     FrameDelta delta;
+    
     for (const auto& ev : frame.events) {
         switch (ev.type) {
             case EventType::ARR:
@@ -64,7 +64,7 @@ void StateTracker::processFrame(const FrameContext& frame) {
                 break;
         }
     }
-
+    
     applyArrivals(delta);
     applyTaskCompletions(delta);
     applyTransferCompletions(delta);
@@ -81,7 +81,7 @@ void StateTracker::applyArrivals(const FrameDelta& delta) {
         req.Lin = ev.Lin;
         req.stage = RequestStage::ARRIVED;
         requests[ev.rid] = req;
-
+        
         pPreReadyList.push_back(ev.rid);
     }
 }
@@ -104,9 +104,9 @@ void StateTracker::applyTaskCompletions(const FrameDelta& delta) {
             }
         }
 
-        const char* ptr = ev.task_spec;
+        const char* ptr = ev.task_spec.c_str();
         while (*ptr && *ptr <= ' ') ptr++;
-
+        
         if (ptr[0] == 'P') {
             ptr++;
             while (*ptr && *ptr <= ' ') ptr++;
@@ -209,7 +209,7 @@ void StateTracker::applyTransferCompletions(const FrameDelta& delta) {
             }
         } else if (strcmp(ev.stage_tag, "DEC") == 0) {
             if (strcmp(ev.direction, "UP") == 0) {
-                for (int i = 0; i < ev.m; ++i) {
+                for (int i = 0; i < static_cast<int>(ev.rids.size()); ++i) {
                     int rid = ev.rids[i];
                     if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                         requests[rid].decodeUpReady = true;
@@ -221,7 +221,7 @@ void StateTracker::applyTransferCompletions(const FrameDelta& delta) {
                     }
                 }
             } else if (strcmp(ev.direction, "DOWN") == 0) {
-                for (int i = 0; i < ev.m; ++i) {
+                for (int i = 0; i < static_cast<int>(ev.rids.size()); ++i) {
                     int rid = ev.rids[i];
                     if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                         requests[rid].decodeDownReady = true;

@@ -74,15 +74,15 @@ struct Event {
     EventType type;
     int rid;
     int Lin;
-    char server[16];
-    char task_spec[64];
+    char server[32];
+    std::string task_spec;
     double dur;
     char direction[8];
     int remote;
     long long size;
     char stage_tag[8];
     int m;
-    int rids[64];
+    std::vector<int> rids;
 };
 
 struct FrameContext {
@@ -313,7 +313,7 @@ public:
                 }
             }
 
-            const char* ptr = ev.task_spec;
+            const char* ptr = ev.task_spec.c_str();
             while (*ptr && *ptr <= ' ') ptr++;
 
             if (ptr[0] == 'P') {
@@ -416,7 +416,7 @@ public:
                 }
             } else if (strcmp(ev.stage_tag, "DEC") == 0) {
                 if (strcmp(ev.direction, "UP") == 0) {
-                    for (int i = 0; i < ev.m; ++i) {
+                    for (int i = 0; i < static_cast<int>(ev.rids.size()); ++i) {
                         int rid = ev.rids[i];
                         if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                             requests[rid].decodeUpReady = true;
@@ -428,7 +428,7 @@ public:
                         }
                     }
                 } else if (strcmp(ev.direction, "DOWN") == 0) {
-                    for (int i = 0; i < ev.m; ++i) {
+                    for (int i = 0; i < static_cast<int>(ev.rids.size()); ++i) {
                         int rid = ev.rids[i];
                         if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                             requests[rid].decodeDownReady = true;
@@ -701,7 +701,7 @@ public:
 // 7. OUTPUT FORMATTER & FAST I/O
 // ============================================================================
 
-static char g_outStaticBuf[65536];
+static char g_outStaticBuf[1048576]; // 1MB output static buffer for large decode batches
 
 class OutputFormatter {
 public:
@@ -787,7 +787,7 @@ public:
 // 8. FAST INPUT PARSER & MAIN INTERACTION LOOP
 // ============================================================================
 
-static char g_inLineBuf[65536];
+static char g_inLineBuf[1048576]; // 1MB line buffer for large input frame events
 
 static inline double fastParseDouble(const char*& p) {
     while (*p && *p <= ' ') p++;
@@ -863,7 +863,6 @@ public:
             while (*p && *p <= ' ') p++;
 
             Event ev;
-            memset(&ev, 0, sizeof(ev));
 
             if (p[0] == 'A' && p[1] == 'R' && p[2] == 'R') {
                 ev.type = EventType::ARR;
@@ -871,51 +870,39 @@ public:
                 ev.rid = fastParseInt(p);
                 ev.Lin = fastParseInt(p);
             } else if (p[0] == 'T' && p[1] == 'D' && p[2] == 'N') {
+                p += 3;
                 ev.type = EventType::TDN;
-                p += 3;
                 while (*p && *p <= ' ') p++;
-                int sidx = 0;
-                while (*p && *p > ' ' && sidx < 15) {
-                    ev.server[sidx++] = *p++;
-                }
-                ev.server[sidx] = '\0';
+                
+                const char* startServer = p;
+                while (*p && *p > ' ') p++;
+                size_t sLen = std::min<size_t>(p - startServer, sizeof(ev.server) - 1);
+                memcpy(ev.server, startServer, sLen);
+                ev.server[sLen] = '\0';
 
-                while (*p && *p <= ' ') p++;
-                int specidx = 0;
-                const char* specStart = p;
-                while (*p && specidx < 63) {
-                    if (*p == ' ') {
-                        const char* nextP = p + 1;
-                        while (*nextP && *nextP <= ' ') nextP++;
-                        bool isDigitOrDot = false;
-                        if ((*nextP >= '0' && *nextP <= '9') || *nextP == '-' || *nextP == '+') {
-                            const char* scan = nextP;
-                            int digits = 0, dots = 0;
-                            while ((*scan >= '0' && *scan <= '9') || *scan == '.') {
-                                if (*scan == '.') dots++;
-                                else digits++;
-                                scan++;
-                            }
-                            if (digits > 0 && dots <= 1 && (*scan == '\r' || *scan == '\n' || *scan == ' ' || *scan == '\0')) {
-                                isDigitOrDot = true;
-                            }
-                        }
-                        if (isDigitOrDot) break;
-                    }
-                    ev.task_spec[specidx++] = *p++;
+                const char* rest = p;
+                while (*rest && *rest <= ' ') rest++;
+                const char* lastSpace = strrchr(rest, ' ');
+                if (lastSpace) {
+                    ev.task_spec.assign(rest, lastSpace - rest);
+                    const char* durPtr = lastSpace + 1;
+                    ev.dur = fastParseDouble(durPtr);
+                } else {
+                    ev.task_spec = rest;
+                    ev.dur = 0.0;
                 }
-                ev.task_spec[specidx] = '\0';
-
-                ev.dur = fastParseDouble(p);
             } else if (p[0] == 'X' && p[1] == 'D' && p[2] == 'N') {
-                ev.type = EventType::XDN;
                 p += 3;
+                ev.type = EventType::XDN;
                 while (*p && *p <= ' ') p++;
-                int diridx = 0;
-                while (*p && *p > ' ' && diridx < 7) {
-                    ev.direction[diridx++] = *p++;
+                
+                if (p[0] == 'U' && p[1] == 'P') {
+                    ev.direction[0] = 'U'; ev.direction[1] = 'P'; ev.direction[2] = '\0';
+                    p += 2;
+                } else if (p[0] == 'D' && p[1] == 'O' && p[2] == 'W' && p[3] == 'N') {
+                    ev.direction[0] = 'D'; ev.direction[1] = 'O'; ev.direction[2] = 'W'; ev.direction[3] = 'N'; ev.direction[4] = '\0';
+                    p += 4;
                 }
-                ev.direction[diridx] = '\0';
 
                 ev.remote = fastParseInt(p);
                 while (*p && *p <= ' ') p++;
@@ -926,23 +913,18 @@ public:
                 }
 
                 while (*p && *p <= ' ') p++;
-                int tagidx = 0;
-                while (*p && *p > ' ' && tagidx < 7) {
-                    ev.stage_tag[tagidx++] = *p++;
-                }
-                ev.stage_tag[tagidx] = '\0';
+                const char* startTag = p;
+                while (*p && *p > ' ') p++;
+                size_t tagLen = std::min<size_t>(p - startTag, sizeof(ev.stage_tag) - 1);
+                memcpy(ev.stage_tag, startTag, tagLen);
+                ev.stage_tag[tagLen] = '\0';
 
                 ev.m = fastParseInt(p);
-
-                if (strcmp(ev.stage_tag, "PRE") == 0) {
-                    ev.rid = fastParseInt(p);
-                    ev.rids[0] = ev.rid;
-                } else {
-                    for (int j = 0; j < ev.m; ++j) {
-                        ev.rids[j] = fastParseInt(p);
-                    }
-                    if (ev.m > 0) ev.rid = ev.rids[0];
+                ev.rids.resize(ev.m);
+                for (int r = 0; r < ev.m; ++r) {
+                    ev.rids[r] = fastParseInt(p);
                 }
+                if (ev.m > 0) ev.rid = ev.rids[0];
             } else if (p[0] == 'F' && p[1] == 'I' && p[2] == 'N') {
                 ev.type = EventType::FIN;
                 p += 3;
@@ -955,11 +937,8 @@ public:
 };
 
 int main() {
-    // Un-sync C++ I/O streams
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(nullptr);
-
-    // Note: Do NOT use setvbuf(_IOFBF) on stdin in interactive competition environments!
 
     SystemConfig sys;
     if (!ProtocolHandler::parseSystemConfig(sys, stdin)) return 0;

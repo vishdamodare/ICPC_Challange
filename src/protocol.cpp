@@ -5,7 +5,7 @@
 #include <cstring>
 #include <cstdio>
 
-static char lineBuf[1024];
+static char lineBuf[1048576]; // 1MB line buffer for large batch frames
 
 static inline bool getNextLine(std::istream& is, char* buf, size_t size) {
     if (&is == &std::cin) {
@@ -64,23 +64,21 @@ static inline double fastParseDouble(const char*& p) {
     while (*p && *p <= ' ') p++;
     bool neg = false;
     if (*p == '-') { neg = true; p++; }
-    double integerPart = 0.0;
+    double val = 0.0;
     while (*p >= '0' && *p <= '9') {
-        integerPart = integerPart * 10.0 + (*p - '0');
+        val = val * 10.0 + (*p - '0');
         p++;
     }
-    double fracPart = 0.0;
-    double scale = 0.1;
     if (*p == '.') {
         p++;
+        double frac = 0.1;
         while (*p >= '0' && *p <= '9') {
-            fracPart += (*p - '0') * scale;
-            scale *= 0.1;
+            val += (*p - '0') * frac;
+            frac *= 0.1;
             p++;
         }
     }
-    double res = integerPart + fracPart;
-    return neg ? -res : res;
+    return neg ? -val : val;
 }
 
 static FrameContext g_reusableFrame;
@@ -88,18 +86,23 @@ static FrameContext g_reusableFrame;
 FrameContext InteractiveIO::parseFrame(std::istream& is) {
     g_reusableFrame.events.clear();
     g_reusableFrame.isEnd = false;
-    
-    if (!getNextLine(is, lineBuf, sizeof(lineBuf))) {
+
+    const char* ptr = nullptr;
+    do {
+        if (!getNextLine(is, lineBuf, sizeof(lineBuf))) {
+            g_reusableFrame.isEnd = true;
+            return g_reusableFrame;
+        }
+        ptr = lineBuf;
+        while (*ptr && *ptr <= ' ') ptr++;
+        if (*ptr != '\0') break;
+    } while (true);
+
+    if (ptr[0] == 'E' && ptr[1] == 'N' && ptr[2] == 'D') {
         g_reusableFrame.isEnd = true;
         return g_reusableFrame;
     }
 
-    if (lineBuf[0] == 'E' && lineBuf[1] == 'N' && lineBuf[2] == 'D') {
-        g_reusableFrame.isEnd = true;
-        return g_reusableFrame;
-    }
-
-    const char* ptr = lineBuf;
     g_reusableFrame.timestamp = fastParseDouble(ptr);
 
     if (!getNextLine(is, lineBuf, sizeof(lineBuf))) {
@@ -139,16 +142,11 @@ FrameContext InteractiveIO::parseFrame(std::istream& is) {
             while (*rest && *rest <= ' ') rest++;
             const char* lastSpace = strrchr(rest, ' ');
             if (lastSpace) {
-                size_t specLen = std::min<size_t>(lastSpace - rest, sizeof(ev.task_spec) - 1);
-                memcpy(ev.task_spec, rest, specLen);
-                ev.task_spec[specLen] = '\0';
-
+                ev.task_spec.assign(rest, lastSpace - rest);
                 const char* durPtr = lastSpace + 1;
                 ev.dur = fastParseDouble(durPtr);
             } else {
-                size_t specLen = std::min<size_t>(strlen(rest), sizeof(ev.task_spec) - 1);
-                memcpy(ev.task_spec, rest, specLen);
-                ev.task_spec[specLen] = '\0';
+                ev.task_spec = rest;
                 ev.dur = 0.0;
             }
         } else if (ptr[0] == 'X' && ptr[1] == 'D' && ptr[2] == 'N') {
@@ -175,11 +173,11 @@ FrameContext InteractiveIO::parseFrame(std::istream& is) {
             ev.stage_tag[tagLen] = '\0';
 
             ev.m = fastParseInt(ptr);
-            int fetchCount = std::min<int>(ev.m, 64);
-            for (int r = 0; r < fetchCount; ++r) {
+            ev.rids.resize(ev.m);
+            for (int r = 0; r < ev.m; ++r) {
                 ev.rids[r] = fastParseInt(ptr);
             }
-            if (fetchCount > 0) ev.rid = ev.rids[0];
+            if (ev.m > 0) ev.rid = ev.rids[0];
         } else if (ptr[0] == 'F' && ptr[1] == 'I' && ptr[2] == 'N') {
             ptr += 3;
             ev.type = EventType::FIN;
