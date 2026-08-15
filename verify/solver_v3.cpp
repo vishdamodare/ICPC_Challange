@@ -1,4 +1,4 @@
-// ICPC 2026 Huawei Challenge - Submission v3.0 (Dynamic Cloud Load-Balancing)
+// ICPC 2026 Huawei Challenge - Submission v2.0 (Prefill Priority Optimized)
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -243,6 +243,7 @@ static inline void removeFromVec(std::vector<int> &vec, int val) {
 class StateTracker {
 public:
   SystemConfig sysConfig;
+  ScoringConfig scoringConfig;
   ServerState edgeServer;
   std::vector<ServerState> cloudServers;
   std::vector<RequestState> requests;
@@ -604,7 +605,7 @@ public:
 };
 
 // ============================================================================
-// 5. SCHEDULING STRATEGY (LOAD-BALANCED PREFILL PRIORITY)
+// 5. SCHEDULING STRATEGY (PREFILL-FIRST PRIORITY OPTIMIZATION)
 // ============================================================================
 
 class SchedulingStrategy {
@@ -625,52 +626,86 @@ public:
   std::vector<Task> selectTasks(const StateTracker &state,
                                 const std::vector<Task> &candidates) override {
     std::vector<Task> selected;
+    double w_tp = state.scoringConfig.w_tp;
+    double w_c = state.scoringConfig.w_c;
 
     if (!state.edgeServer.busy) {
-      if (!state.pPostReadyList.empty()) {
-        int rid = state.pPostReadyList[0];
-        Task t;
-        t.type = TaskType::P_POST;
-        t.server = -1;
-        t.remote = state.requests[rid].assignedRemote;
-        t.m = 1;
-        t.requests = {rid};
-        selected.push_back(t);
-      } else if (!state.pPreReadyList.empty()) {
-        int rid = state.pPreReadyList[0];
-        // Dynamic Load-Balancing: Assign request to cloud with shortest prefill queue
-        int targetRemote = 0;
-        int minPrefill = 1e9;
-        for (int k = 0; k < state.sysConfig.K; ++k) {
-          int count = static_cast<int>(state.pProcReadyList[k].size());
-          if (count < minPrefill) {
-            minPrefill = count;
-            targetRemote = k;
-          }
+      if (w_tp > 0.6) {
+        // Throughput dominant: prioritize D_POST and D_PRE batching
+        if (!state.dPostReadyList.empty()) {
+          Task t;
+          t.type = TaskType::D_POST;
+          t.server = -1;
+          t.remote = -1;
+          t.m = static_cast<int>(state.dPostReadyList.size());
+          t.requests = state.dPostReadyList;
+          selected.push_back(t);
+        } else if (!state.pPostReadyList.empty()) {
+          int rid = state.pPostReadyList[0];
+          Task t;
+          t.type = TaskType::P_POST;
+          t.server = -1;
+          t.remote = state.requests[rid].assignedRemote;
+          t.m = 1;
+          t.requests = {rid};
+          selected.push_back(t);
+        } else if (!state.dPreReadyList.empty()) {
+          Task t;
+          t.type = TaskType::D_PRE;
+          t.server = -1;
+          t.remote = -1;
+          t.m = static_cast<int>(state.dPreReadyList.size());
+          t.requests = state.dPreReadyList;
+          selected.push_back(t);
+        } else if (!state.pPreReadyList.empty()) {
+          int rid = state.pPreReadyList[0];
+          int targetRemote = rid % state.sysConfig.K;
+          Task t;
+          t.type = TaskType::P_PRE;
+          t.server = -1;
+          t.remote = targetRemote;
+          t.m = 1;
+          t.requests = {rid};
+          selected.push_back(t);
         }
-        Task t;
-        t.type = TaskType::P_PRE;
-        t.server = -1;
-        t.remote = targetRemote;
-        t.m = 1;
-        t.requests = {rid};
-        selected.push_back(t);
-      } else if (!state.dPostReadyList.empty()) {
-        Task t;
-        t.type = TaskType::D_POST;
-        t.server = -1;
-        t.remote = -1;
-        t.m = static_cast<int>(state.dPostReadyList.size());
-        t.requests = state.dPostReadyList;
-        selected.push_back(t);
-      } else if (!state.dPreReadyList.empty()) {
-        Task t;
-        t.type = TaskType::D_PRE;
-        t.server = -1;
-        t.remote = -1;
-        t.m = static_cast<int>(state.dPreReadyList.size());
-        t.requests = state.dPreReadyList;
-        selected.push_back(t);
+      } else {
+        // Latency/Balanced: prioritize P_POST -> P_PRE -> D_POST -> D_PRE
+        if (!state.pPostReadyList.empty()) {
+          int rid = state.pPostReadyList[0];
+          Task t;
+          t.type = TaskType::P_POST;
+          t.server = -1;
+          t.remote = state.requests[rid].assignedRemote;
+          t.m = 1;
+          t.requests = {rid};
+          selected.push_back(t);
+        } else if (!state.pPreReadyList.empty()) {
+          int rid = state.pPreReadyList[0];
+          int targetRemote = rid % state.sysConfig.K;
+          Task t;
+          t.type = TaskType::P_PRE;
+          t.server = -1;
+          t.remote = targetRemote;
+          t.m = 1;
+          t.requests = {rid};
+          selected.push_back(t);
+        } else if (!state.dPostReadyList.empty()) {
+          Task t;
+          t.type = TaskType::D_POST;
+          t.server = -1;
+          t.remote = -1;
+          t.m = static_cast<int>(state.dPostReadyList.size());
+          t.requests = state.dPostReadyList;
+          selected.push_back(t);
+        } else if (!state.dPreReadyList.empty()) {
+          Task t;
+          t.type = TaskType::D_PRE;
+          t.server = -1;
+          t.remote = -1;
+          t.m = static_cast<int>(state.dPreReadyList.size());
+          t.requests = state.dPreReadyList;
+          selected.push_back(t);
+        }
       }
     }
 
@@ -678,25 +713,57 @@ public:
       if (state.cloudServers[k].busy)
         continue;
 
-      if (!state.pProcReadyList[k].empty()) {
-        int rid = state.pProcReadyList[k][0];
-        Task t;
-        t.type = TaskType::P_PROC;
-        t.server = k;
-        t.remote = k;
-        t.ls = state.requests[rid].nextLayerStart;
-        t.le = state.sysConfig.num_layers;
-        t.m = 1;
-        t.requests = {rid};
-        selected.push_back(t);
-      } else if (!state.dProcReadyList[k].empty()) {
-        Task t;
-        t.type = TaskType::D_PROC;
-        t.server = k;
-        t.remote = k;
-        t.m = static_cast<int>(state.dProcReadyList[k].size());
-        t.requests = state.dProcReadyList[k];
-        selected.push_back(t);
+      if (w_tp > 0.6) {
+        // High throughput weight: batch D_PROC first if batch size >= 2
+        if (state.dProcReadyList[k].size() >= 2) {
+          Task t;
+          t.type = TaskType::D_PROC;
+          t.server = k;
+          t.remote = k;
+          t.m = static_cast<int>(state.dProcReadyList[k].size());
+          t.requests = state.dProcReadyList[k];
+          selected.push_back(t);
+        } else if (!state.pProcReadyList[k].empty()) {
+          int rid = state.pProcReadyList[k][0];
+          Task t;
+          t.type = TaskType::P_PROC;
+          t.server = k;
+          t.remote = k;
+          t.ls = state.requests[rid].nextLayerStart;
+          t.le = state.sysConfig.num_layers;
+          t.m = 1;
+          t.requests = {rid};
+          selected.push_back(t);
+        } else if (!state.dProcReadyList[k].empty()) {
+          Task t;
+          t.type = TaskType::D_PROC;
+          t.server = k;
+          t.remote = k;
+          t.m = static_cast<int>(state.dProcReadyList[k].size());
+          t.requests = state.dProcReadyList[k];
+          selected.push_back(t);
+        }
+      } else {
+        if (!state.pProcReadyList[k].empty()) {
+          int rid = state.pProcReadyList[k][0];
+          Task t;
+          t.type = TaskType::P_PROC;
+          t.server = k;
+          t.remote = k;
+          t.ls = state.requests[rid].nextLayerStart;
+          t.le = state.sysConfig.num_layers;
+          t.m = 1;
+          t.requests = {rid};
+          selected.push_back(t);
+        } else if (!state.dProcReadyList[k].empty()) {
+          Task t;
+          t.type = TaskType::D_PROC;
+          t.server = k;
+          t.remote = k;
+          t.m = static_cast<int>(state.dProcReadyList[k].size());
+          t.requests = state.dProcReadyList[k];
+          selected.push_back(t);
+        }
       }
     }
 
@@ -1024,6 +1091,7 @@ int main() {
 
   StateTracker state;
   state.init(sys);
+  state.scoringConfig = sc;
 
   GreedyBatchStrategy strat(table);
 

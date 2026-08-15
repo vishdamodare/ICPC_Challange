@@ -1,4 +1,4 @@
-// ICPC 2026 Huawei Challenge - Submission v3.0 (Dynamic Cloud Load-Balancing)
+// ICPC 2026 Huawei Challenge - Submission v2.0 (Prefill Priority Optimized)
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -604,7 +604,7 @@ public:
 };
 
 // ============================================================================
-// 5. SCHEDULING STRATEGY (LOAD-BALANCED PREFILL PRIORITY)
+// 5. SCHEDULING STRATEGY (PREFILL-FIRST PRIORITY OPTIMIZATION)
 // ============================================================================
 
 class SchedulingStrategy {
@@ -638,7 +638,6 @@ public:
         selected.push_back(t);
       } else if (!state.pPreReadyList.empty()) {
         int rid = state.pPreReadyList[0];
-        // Dynamic Load-Balancing: Assign request to cloud with shortest prefill queue
         int targetRemote = 0;
         int minPrefill = 1e9;
         for (int k = 0; k < state.sysConfig.K; ++k) {
