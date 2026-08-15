@@ -1,0 +1,20 @@
+# Compiled binaries
+solver
+adv_runner
+bench_2m
+bench_perf
+bench_score
+decision_diff
+end_to_end_2m
+event_order_test
+final_policy_search_20k
+head_to_head_10k
+policy_analysis
+runner
+score_analysis
+sim_main
+startup_desync_test
+
+# OS files
+.DS_Store
+*.dSYM
