@@ -1,0 +1,8 @@
+ID: 387200112
+Problem: A - Edge--Cloud Collaborative Scheduling
+Compiler: C++20 (GCC 13-64)
+Verdict: WRONG_ANSWER [Test 22]
+Time: 46 ms
+Memory: 200 KB
+Commit: ee738397099b553fd501291c84d31e95b1e6b5a3
+Tag: contest-final-v1.0
