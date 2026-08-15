@@ -1,4 +1,4 @@
-// ICPC 2026 Huawei Challenge - Submission v4.0 (Equal-Queue Round-Robin & Load Balance)
+// ICPC 2026 Huawei Challenge - Submission v3.0 (Dynamic Cloud Load-Balancing)
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -604,7 +604,7 @@ public:
 };
 
 // ============================================================================
-// 5. SCHEDULING STRATEGY (EQUAL-QUEUE ROUND-ROBIN & LOAD BALANCE v4.0)
+// 5. SCHEDULING STRATEGY (LOAD-BALANCED PREFILL PRIORITY)
 // ============================================================================
 
 class SchedulingStrategy {
@@ -636,37 +636,6 @@ public:
         t.m = 1;
         t.requests = {rid};
         selected.push_back(t);
-      } else if (!state.pPreReadyList.empty()) {
-        int rid = state.pPreReadyList[0];
-        // Equal-Queue Round-Robin & Load Balancing:
-        // Use Round-Robin (rid % K) if all cloud prefill queues are equal,
-        // otherwise assign to the cloud server with the shortest prefill queue.
-        int targetRemote = rid % state.sysConfig.K;
-        int minCount = 1e9;
-        int maxCount = -1;
-
-        for (int k = 0; k < state.sysConfig.K; ++k) {
-          int count = static_cast<int>(state.pProcReadyList[k].size());
-          if (count < minCount) {
-            minCount = count;
-            targetRemote = k;
-          }
-          if (count > maxCount) {
-            maxCount = count;
-          }
-        }
-
-        if (minCount == maxCount) {
-          targetRemote = rid % state.sysConfig.K;
-        }
-
-        Task t;
-        t.type = TaskType::P_PRE;
-        t.server = -1;
-        t.remote = targetRemote;
-        t.m = 1;
-        t.requests = {rid};
-        selected.push_back(t);
       } else if (!state.dPostReadyList.empty()) {
         Task t;
         t.type = TaskType::D_POST;
@@ -682,6 +651,24 @@ public:
         t.remote = -1;
         t.m = static_cast<int>(state.dPreReadyList.size());
         t.requests = state.dPreReadyList;
+        selected.push_back(t);
+      } else if (!state.pPreReadyList.empty()) {
+        int rid = state.pPreReadyList[0];
+        int targetRemote = 0;
+        int minPrefill = 1e9;
+        for (int k = 0; k < state.sysConfig.K; ++k) {
+          int count = static_cast<int>(state.pProcReadyList[k].size());
+          if (count < minPrefill) {
+            minPrefill = count;
+            targetRemote = k;
+          }
+        }
+        Task t;
+        t.type = TaskType::P_PRE;
+        t.server = -1;
+        t.remote = targetRemote;
+        t.m = 1;
+        t.requests = {rid};
         selected.push_back(t);
       }
     }
