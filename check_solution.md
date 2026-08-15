@@ -9,15 +9,15 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
+ 
 // ============================================================================
 // 1. PROTOCOL TYPES & STRUCTURES
 // ============================================================================
-
+ 
 enum class TaskType { P_PRE, P_PROC, P_POST, D_PRE, D_PROC, D_POST };
-
+ 
 enum class EventType { ARR, TDN, XDN, FIN };
-
+ 
 enum class RequestStage {
   UNINITIALIZED,
   ARRIVED,
@@ -38,7 +38,7 @@ enum class RequestStage {
   D_POST_IN_FLIGHT,
   FINISHED
 };
-
+ 
 struct SystemConfig {
   int K;
   double S;
@@ -47,7 +47,7 @@ struct SystemConfig {
   long long bytes_per_token;
   int num_layers;
 };
-
+ 
 struct ScoringConfig {
   double SLO1;
   double SLO2;
@@ -57,7 +57,7 @@ struct ScoringConfig {
   double w_tp;
   double w_c;
 };
-
+ 
 struct Event {
   EventType type;
   int rid;
@@ -72,13 +72,13 @@ struct Event {
   int m;
   std::vector<int> rids;
 };
-
+ 
 struct FrameContext {
   double timestamp;
   int eventCount;
   std::vector<Event> events;
 };
-
+ 
 struct Task {
   TaskType type;
   int server; // -1 for Edge (E), 0..K-1 for Cloud (Ck)
@@ -88,7 +88,7 @@ struct Task {
   int m;      // Batch size
   std::vector<int> requests;
 };
-
+ 
 struct RequestState {
   int rid = -1;
   int Lin = 0;
@@ -102,24 +102,24 @@ struct RequestState {
   bool decodeDownReady = false;
   RequestStage stage = RequestStage::UNINITIALIZED;
 };
-
+ 
 struct ServerState {
   bool busy = false;
   Task currentTask;
   double availableTime = 0.0;
 };
-
+ 
 struct FrameDelta {
   std::vector<Event> arrivals;
   std::vector<Event> taskCompletions;
   std::vector<Event> transferCompletions;
   std::vector<Event> finishes;
 };
-
+ 
 // ============================================================================
 // 2. TASK TIME TABLE
 // ============================================================================
-
+ 
 struct RawTaskTimeRow {
   int batch_size;
   double prefill_pre;
@@ -129,12 +129,12 @@ struct RawTaskTimeRow {
   double decode_proc;
   double decode_post;
 };
-
+ 
 class TaskTable {
 public:
   int N;
   std::vector<RawTaskTimeRow> raw_rows;
-
+ 
   void parse(FILE *inStream) {
     if (fscanf(inStream, "%d", &N) != 1)
       return;
@@ -149,11 +149,11 @@ public:
       }
     }
   }
-
+ 
   double interpolate(TaskType type, int batch_size) const {
     if (raw_rows.empty())
       return 1.0;
-
+ 
     std::vector<std::pair<int, double>> points;
     for (const auto &r : raw_rows) {
       double val = -1.0;
@@ -181,18 +181,18 @@ public:
         points.push_back({r.batch_size, val});
       }
     }
-
+ 
     if (points.empty())
       return 1.0;
-
+ 
     std::sort(points.begin(), points.end(),
               [](const auto &a, const auto &b) { return a.first < b.first; });
-
+ 
     if (batch_size <= points.front().first)
       return points.front().second;
     if (batch_size >= points.back().first)
       return points.back().second;
-
+ 
     for (size_t i = 0; i < points.size() - 1; ++i) {
       if (batch_size >= points[i].first && batch_size <= points[i + 1].first) {
         double x0 = points[i].first;
@@ -204,15 +204,15 @@ public:
         return y0 + (batch_size - x0) * (y1 - y0) / (x1 - x0);
       }
     }
-
+ 
     return points.back().second;
   }
 };
-
+ 
 // ============================================================================
 // 3. STATE TRACKER
 // ============================================================================
-
+ 
 static inline int fastParseInt(const char *&p) {
   while (*p && *p <= ' ')
     p++;
@@ -228,7 +228,7 @@ static inline int fastParseInt(const char *&p) {
   }
   return neg ? -val : val;
 }
-
+ 
 static inline void removeFromVec(std::vector<int> &vec, int val) {
   for (size_t i = 0; i < vec.size(); ++i) {
     if (vec[i] == val) {
@@ -238,21 +238,21 @@ static inline void removeFromVec(std::vector<int> &vec, int val) {
     }
   }
 }
-
+ 
 class StateTracker {
 public:
   SystemConfig sysConfig;
   ServerState edgeServer;
   std::vector<ServerState> cloudServers;
   std::vector<RequestState> requests;
-
+ 
   std::vector<int> pPreReadyList;
   std::vector<int> pPostReadyList;
   std::vector<int> dPreReadyList;
   std::vector<int> dPostReadyList;
   std::vector<std::vector<int>> pProcReadyList;
   std::vector<std::vector<int>> dProcReadyList;
-
+ 
   void init(const SystemConfig &sys) {
     sysConfig = sys;
     edgeServer.busy = false;
@@ -268,9 +268,9 @@ public:
     pProcReadyList.assign(sys.K, {});
     dProcReadyList.assign(sys.K, {});
   }
-
+ 
   void rebuildReadinessLists() {}
-
+ 
   void processFrame(const FrameContext &frame) {
     FrameDelta delta;
     for (const auto &ev : frame.events) {
@@ -294,7 +294,7 @@ public:
     applyTransferCompletions(delta);
     applyFinishes(delta);
   }
-
+ 
   void applyArrivals(const FrameDelta &delta) {
     for (const auto &ev : delta.arrivals) {
       if (ev.rid >= static_cast<int>(requests.size())) {
@@ -308,7 +308,7 @@ public:
       pPreReadyList.push_back(ev.rid);
     }
   }
-
+ 
   void applyTaskCompletions(const FrameDelta &delta) {
     for (const auto &ev : delta.taskCompletions) {
       int cloudIdx = -1;
@@ -326,11 +326,11 @@ public:
           cloudIdx = k;
         }
       }
-
+ 
       const char *ptr = ev.task_spec.c_str();
       while (*ptr && *ptr <= ' ')
         ptr++;
-
+ 
       if (ptr[0] == 'P') {
         ptr++;
         while (*ptr && *ptr <= ' ')
@@ -419,7 +419,7 @@ public:
       }
     }
   }
-
+ 
   void applyTransferCompletions(const FrameDelta &delta) {
     for (const auto &ev : delta.transferCompletions) {
       if (strcmp(ev.stage_tag, "PRE") == 0) {
@@ -463,7 +463,7 @@ public:
       }
     }
   }
-
+ 
   void applyFinishes(const FrameDelta &delta) {
     for (const auto &ev : delta.finishes) {
       if (ev.rid >= 0 && ev.rid < static_cast<int>(requests.size())) {
@@ -474,14 +474,14 @@ public:
       }
     }
   }
-
+ 
   void markTaskAssigned(const Task &task) {
     if (task.server == -1) {
       edgeServer.busy = true;
     } else if (task.server >= 0 && task.server < sysConfig.K) {
       cloudServers[task.server].busy = true;
     }
-
+ 
     for (int rid : task.requests) {
       if (rid >= 0 && rid < static_cast<int>(requests.size())) {
         switch (task.type) {
@@ -517,17 +517,17 @@ public:
     }
   }
 };
-
+ 
 // ============================================================================
 // 4. LEGAL TASK GENERATOR
 // ============================================================================
-
+ 
 class LegalTaskGenerator {
 public:
   static std::vector<Task> generateCandidates(const StateTracker &state) {
     std::vector<Task> candidates;
     candidates.reserve(16);
-
+ 
     if (!state.edgeServer.busy) {
       if (!state.pPreReadyList.empty()) {
         int rid = state.pPreReadyList[0];
@@ -570,11 +570,11 @@ public:
         candidates.push_back(t);
       }
     }
-
+ 
     for (int k = 0; k < state.sysConfig.K; ++k) {
       if (state.cloudServers[k].busy)
         continue;
-
+ 
       if (!state.pProcReadyList[k].empty()) {
         int rid = state.pProcReadyList[k][0];
         Task t;
@@ -597,15 +597,15 @@ public:
         candidates.push_back(t);
       }
     }
-
+ 
     return candidates;
   }
 };
-
+ 
 // ============================================================================
 // 5. SCHEDULING STRATEGY (V2 GREEDY BATCH)
 // ============================================================================
-
+ 
 class SchedulingStrategy {
 public:
   virtual ~SchedulingStrategy() = default;
@@ -613,18 +613,18 @@ public:
   selectTasks(const StateTracker &state,
               const std::vector<Task> &candidates) = 0;
 };
-
+ 
 class GreedyBatchStrategy : public SchedulingStrategy {
 private:
   const TaskTable &taskTable;
-
+ 
 public:
   explicit GreedyBatchStrategy(const TaskTable &table) : taskTable(table) {}
-
+ 
   std::vector<Task> selectTasks(const StateTracker &state,
                                 const std::vector<Task> &candidates) override {
     std::vector<Task> selected;
-
+ 
     if (!state.edgeServer.busy) {
       if (!state.dPostReadyList.empty()) {
         Task t;
@@ -663,11 +663,11 @@ public:
         selected.push_back(t);
       }
     }
-
+ 
     for (int k = 0; k < state.sysConfig.K; ++k) {
       if (state.cloudServers[k].busy)
         continue;
-
+ 
       if (!state.dProcReadyList[k].empty()) {
         Task t;
         t.type = TaskType::D_PROC;
@@ -689,15 +689,15 @@ public:
         selected.push_back(t);
       }
     }
-
+ 
     return selected;
   }
 };
-
+ 
 // ============================================================================
 // 6. CONFLICT RESOLVER
 // ============================================================================
-
+ 
 class ConflictResolver {
 public:
   static std::vector<Task>
@@ -709,7 +709,7 @@ public:
     for (int k = 0; k < state.sysConfig.K; ++k) {
       cloudUsed[k] = state.cloudServers[k].busy;
     }
-
+ 
     for (const auto &task : selectedTasks) {
       if (task.server == -1) {
         if (edgeUsed)
@@ -724,24 +724,24 @@ public:
       }
       validTasks.push_back(task);
     }
-
+ 
     return validTasks;
   }
 };
-
+ 
 // ============================================================================
 // 7. OUTPUT FORMATTER & FAST I/O
 // ============================================================================
-
+ 
 static char g_outStaticBuf[1048576]; // 1MB output static buffer for large
                                      // decode batches
-
+ 
 class OutputFormatter {
 public:
   static void sendResponse(const std::vector<Task> &tasks) {
     char *p = g_outStaticBuf;
     int n = static_cast<int>(tasks.size());
-
+ 
     if (n >= 100) {
       p += sprintf(p, "%d\n", n);
     } else if (n >= 10) {
@@ -752,7 +752,7 @@ public:
       *p++ = '0' + n;
       *p++ = '\n';
     }
-
+ 
     for (const auto &t : tasks) {
       if (t.server == -1) {
         *p++ = 'E';
@@ -765,26 +765,26 @@ public:
         }
       }
       *p++ = ' ';
-
+ 
       switch (t.type) {
       case TaskType::P_PRE:
         memcpy(p, "P PRE ", 6);
         p += 6;
         p += sprintf(p, "%d %d\n", t.remote, t.requests[0]);
         break;
-
+ 
       case TaskType::P_PROC:
         memcpy(p, "P PROC ", 7);
         p += 7;
         p += sprintf(p, "%d %d %d %d\n", t.ls, t.le, t.remote, t.requests[0]);
         break;
-
+ 
       case TaskType::P_POST:
         memcpy(p, "P POST ", 7);
         p += 7;
         p += sprintf(p, "%d %d\n", t.remote, t.requests[0]);
         break;
-
+ 
       case TaskType::D_PRE:
         memcpy(p, "D PRE -1 ", 9);
         p += 9;
@@ -794,7 +794,7 @@ public:
         }
         *p++ = '\n';
         break;
-
+ 
       case TaskType::D_PROC:
         memcpy(p, "D PROC ", 7);
         p += 7;
@@ -804,7 +804,7 @@ public:
         }
         *p++ = '\n';
         break;
-
+ 
       case TaskType::D_POST:
         memcpy(p, "D POST -1 ", 10);
         p += 10;
@@ -821,14 +821,14 @@ public:
     fflush(stdout);
   }
 };
-
+ 
 // ============================================================================
 // 8. FAST INPUT PARSER & MAIN INTERACTION LOOP
 // ============================================================================
-
+ 
 static char
     g_inLineBuf[1048576]; // 1MB line buffer for large input frame events
-
+ 
 static inline double fastParseDouble(const char *&p) {
   while (*p && *p <= ' ')
     p++;
@@ -853,7 +853,7 @@ static inline double fastParseDouble(const char *&p) {
   }
   return neg ? -val : val;
 }
-
+ 
 class ProtocolHandler {
 public:
   static bool parseSystemConfig(SystemConfig &sys, FILE *inStream) {
@@ -864,7 +864,7 @@ public:
     }
     return true;
   }
-
+ 
   static bool parseScoringConfig(ScoringConfig &sc, FILE *inStream) {
     if (fscanf(inStream, "%lf %lf %lf %lf %lf %lf %lf", &sc.SLO1, &sc.SLO2,
                &sc.tp_UB, &sc.tp_base, &sc.dist_base, &sc.w_tp, &sc.w_c) != 7) {
@@ -872,10 +872,10 @@ public:
     }
     return true;
   }
-
+ 
   static bool readFrame(FrameContext &frame, FILE *inStream) {
     frame.events.clear();
-
+ 
     const char *p = nullptr;
     do {
       if (fgets(g_inLineBuf, sizeof(g_inLineBuf), inStream) == nullptr) {
@@ -887,19 +887,19 @@ public:
       if (*p != '\0')
         break;
     } while (true);
-
+ 
     if (*p == 'E' && *(p + 1) == 'N' && *(p + 2) == 'D') {
       return false;
     }
-
+ 
     frame.timestamp = fastParseDouble(p);
-
+ 
     if (fgets(g_inLineBuf, sizeof(g_inLineBuf), inStream) == nullptr) {
       return false;
     }
     p = g_inLineBuf;
     frame.eventCount = fastParseInt(p);
-
+ 
     for (int i = 0; i < frame.eventCount; ++i) {
       if (fgets(g_inLineBuf, sizeof(g_inLineBuf), inStream) == nullptr) {
         return false;
@@ -907,9 +907,9 @@ public:
       p = g_inLineBuf;
       while (*p && *p <= ' ')
         p++;
-
+ 
       Event ev;
-
+ 
       if (p[0] == 'A' && p[1] == 'R' && p[2] == 'R') {
         ev.type = EventType::ARR;
         p += 3;
@@ -920,14 +920,14 @@ public:
         ev.type = EventType::TDN;
         while (*p && *p <= ' ')
           p++;
-
+ 
         const char *startServer = p;
         while (*p && *p > ' ')
           p++;
         size_t sLen = std::min<size_t>(p - startServer, sizeof(ev.server) - 1);
         memcpy(ev.server, startServer, sLen);
         ev.server[sLen] = '\0';
-
+ 
         const char *rest = p;
         while (*rest && *rest <= ' ')
           rest++;
@@ -945,7 +945,7 @@ public:
         ev.type = EventType::XDN;
         while (*p && *p <= ' ')
           p++;
-
+ 
         if (p[0] == 'U' && p[1] == 'P') {
           ev.direction[0] = 'U';
           ev.direction[1] = 'P';
@@ -959,7 +959,7 @@ public:
           ev.direction[4] = '\0';
           p += 4;
         }
-
+ 
         ev.remote = fastParseInt(p);
         while (*p && *p <= ' ')
           p++;
@@ -968,7 +968,7 @@ public:
           ev.size = ev.size * 10 + (*p - '0');
           p++;
         }
-
+ 
         while (*p && *p <= ' ')
           p++;
         const char *startTag = p;
@@ -978,7 +978,7 @@ public:
             std::min<size_t>(p - startTag, sizeof(ev.stage_tag) - 1);
         memcpy(ev.stage_tag, startTag, tagLen);
         ev.stage_tag[tagLen] = '\0';
-
+ 
         ev.m = fastParseInt(p);
         ev.rids.resize(ev.m);
         for (int r = 0; r < ev.m; ++r) {
@@ -996,27 +996,27 @@ public:
     return true;
   }
 };
-
+ 
 int main() {
   std::ios_base::sync_with_stdio(false);
   std::cin.tie(nullptr);
-
+ 
   SystemConfig sys;
   if (!ProtocolHandler::parseSystemConfig(sys, stdin))
     return 0;
-
+ 
   ScoringConfig sc;
   if (!ProtocolHandler::parseScoringConfig(sc, stdin))
     return 0;
-
+ 
   TaskTable table;
   table.parse(stdin);
-
+ 
   StateTracker state;
   state.init(sys);
-
+ 
   GreedyBatchStrategy strat(table);
-
+ 
   FrameContext frame;
   while (ProtocolHandler::readFrame(frame, stdin)) {
     state.processFrame(frame);
@@ -1024,13 +1024,13 @@ int main() {
     static const std::vector<Task> kUnusedCandidates;
     auto selected = strat.selectTasks(state, kUnusedCandidates);
     auto validTasks = ConflictResolver::resolveConflicts(state, selected);
-
+ 
     for (const auto &task : validTasks) {
       state.markTaskAssigned(task);
     }
-
+ 
     OutputFormatter::sendResponse(validTasks);
   }
-
+ 
   return 0;
 }
