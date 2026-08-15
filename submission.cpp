@@ -833,12 +833,16 @@ public:
     static bool readFrame(FrameContext& frame, FILE* inStream) {
         frame.events.clear();
 
-        if (fgets(g_inLineBuf, sizeof(g_inLineBuf), inStream) == nullptr) {
-            return false;
-        }
+        const char* p = nullptr;
+        do {
+            if (fgets(g_inLineBuf, sizeof(g_inLineBuf), inStream) == nullptr) {
+                return false;
+            }
+            p = g_inLineBuf;
+            while (*p && *p <= ' ') p++;
+            if (*p != '\0') break;
+        } while (true);
 
-        const char* p = g_inLineBuf;
-        while (*p && *p <= ' ') p++;
         if (*p == 'E' && *(p+1) == 'N' && *(p+2) == 'D') {
             return false;
         }
@@ -951,11 +955,11 @@ public:
 };
 
 int main() {
+    // Un-sync C++ I/O streams
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
-    setvbuf(stdin, nullptr, _IOFBF, 65536);
-    setvbuf(stdout, nullptr, _IOFBF, 65536);
+    // Note: Do NOT use setvbuf(_IOFBF) on stdin in interactive competition environments!
 
     SystemConfig sys;
     if (!ProtocolHandler::parseSystemConfig(sys, stdin)) return 0;

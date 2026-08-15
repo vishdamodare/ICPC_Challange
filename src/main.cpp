@@ -12,10 +12,6 @@
 #include <cstdio>
 
 int main(int argc, char** argv) {
-    // Enable 64KB C stdio buffering for maximum stream throughput & zero desync risk
-    setvbuf(stdin, nullptr, _IOFBF, 65536);
-    setvbuf(stdout, nullptr, _IOFBF, 65536);
-
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
@@ -60,7 +56,7 @@ int main(int argc, char** argv) {
             state.markTaskAssigned(task);
         }
 
-        // Emit assignments to interactor & flush
+        // Send formatted response & flush stdout
         OutputWriter::writeAssignments(std::cout, validTasks);
     }
 
