@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <cstring>
 
 static inline int fastParseInt(const char*& p) {
     while (*p && *p <= ' ') p++;
@@ -13,6 +14,16 @@ static inline int fastParseInt(const char*& p) {
         p++;
     }
     return neg ? -val : val;
+}
+
+static inline void removeFromVec(std::vector<int>& vec, int val) {
+    for (size_t i = 0; i < vec.size(); ++i) {
+        if (vec[i] == val) {
+            vec[i] = vec.back();
+            vec.pop_back();
+            return;
+        }
+    }
 }
 
 void StateTracker::init(const SystemConfig& sys) {
@@ -32,43 +43,7 @@ void StateTracker::init(const SystemConfig& sys) {
 }
 
 void StateTracker::rebuildReadinessLists() {
-    pPreReadyList.clear();
-    pPostReadyList.clear();
-    dPreReadyList.clear();
-    dPostReadyList.clear();
-    pProcReadyList.assign(sysConfig.K, {});
-    dProcReadyList.assign(sysConfig.K, {});
-
-    for (const auto& req : requests) {
-        if (req.rid < 0 || req.finished) continue;
-
-        switch (req.stage) {
-            case RequestStage::ARRIVED:
-                pPreReadyList.push_back(req.rid);
-                break;
-            case RequestStage::P_PROC_READY:
-                if (req.assignedRemote >= 0 && req.assignedRemote < sysConfig.K) {
-                    pProcReadyList[req.assignedRemote].push_back(req.rid);
-                }
-                break;
-            case RequestStage::P_POST_READY:
-                pPostReadyList.push_back(req.rid);
-                break;
-            case RequestStage::D_PRE_READY:
-                dPreReadyList.push_back(req.rid);
-                break;
-            case RequestStage::D_PROC_READY:
-                if (req.assignedRemote >= 0 && req.assignedRemote < sysConfig.K) {
-                    dProcReadyList[req.assignedRemote].push_back(req.rid);
-                }
-                break;
-            case RequestStage::D_POST_READY:
-                dPostReadyList.push_back(req.rid);
-                break;
-            default:
-                break;
-        }
-    }
+    // No-op: readiness lists are maintained incrementally in O(1) on event commits
 }
 
 void StateTracker::processFrame(const FrameContext& frame) {
@@ -94,8 +69,6 @@ void StateTracker::processFrame(const FrameContext& frame) {
     applyTaskCompletions(delta);
     applyTransferCompletions(delta);
     applyFinishes(delta);
-
-    rebuildReadinessLists();
 }
 
 void StateTracker::applyArrivals(const FrameDelta& delta) {
@@ -108,26 +81,30 @@ void StateTracker::applyArrivals(const FrameDelta& delta) {
         req.Lin = ev.Lin;
         req.stage = RequestStage::ARRIVED;
         requests[ev.rid] = req;
+
+        pPreReadyList.push_back(ev.rid);
     }
 }
 
 void StateTracker::applyTaskCompletions(const FrameDelta& delta) {
     for (const auto& ev : delta.taskCompletions) {
-        if (ev.server == "E") {
+        int cloudIdx = -1;
+        if (ev.server[0] == 'E' && ev.server[1] == '\0') {
             edgeServer.busy = false;
-        } else if (!ev.server.empty() && ev.server[0] == 'C') {
+        } else if (ev.server[0] == 'C') {
             int k = 0;
-            const char* sp = ev.server.c_str() + 1;
+            const char* sp = ev.server + 1;
             while (*sp >= '0' && *sp <= '9') {
                 k = k * 10 + (*sp - '0');
                 sp++;
             }
             if (k >= 0 && k < sysConfig.K) {
                 cloudServers[k].busy = false;
+                cloudIdx = k;
             }
         }
 
-        const char* ptr = ev.task_spec.c_str();
+        const char* ptr = ev.task_spec;
         while (*ptr && *ptr <= ' ') ptr++;
 
         if (ptr[0] == 'P') {
@@ -151,6 +128,9 @@ void StateTracker::applyTaskCompletions(const FrameDelta& delta) {
                     if (le < sysConfig.num_layers) {
                         requests[rid].nextLayerStart = le;
                         requests[rid].stage = RequestStage::P_PROC_READY;
+                        if (cloudIdx >= 0 && cloudIdx < sysConfig.K) {
+                            pProcReadyList[cloudIdx].push_back(rid);
+                        }
                     } else {
                         requests[rid].nextLayerStart = sysConfig.num_layers;
                         requests[rid].stage = RequestStage::P_WAIT_DOWN;
@@ -162,6 +142,7 @@ void StateTracker::applyTaskCompletions(const FrameDelta& delta) {
                 int rid = fastParseInt(ptr);
                 if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                     requests[rid].stage = RequestStage::D_PRE_READY;
+                    dPreReadyList.push_back(rid);
                 }
             }
         } else if (ptr[0] == 'D') {
@@ -200,6 +181,7 @@ void StateTracker::applyTaskCompletions(const FrameDelta& delta) {
                         requests[rid].decodeIteration++;
                         if (!requests[rid].finished) {
                             requests[rid].stage = RequestStage::D_PRE_READY;
+                            dPreReadyList.push_back(rid);
                         }
                     }
                 }
@@ -210,29 +192,41 @@ void StateTracker::applyTaskCompletions(const FrameDelta& delta) {
 
 void StateTracker::applyTransferCompletions(const FrameDelta& delta) {
     for (const auto& ev : delta.transferCompletions) {
-        if (ev.stage_tag == "PRE") {
-            if (ev.direction == "UP") {
+        if (strcmp(ev.stage_tag, "PRE") == 0) {
+            if (strcmp(ev.direction, "UP") == 0) {
                 if (ev.rid >= 0 && ev.rid < static_cast<int>(requests.size())) {
                     requests[ev.rid].stage = RequestStage::P_PROC_READY;
+                    int k = requests[ev.rid].assignedRemote;
+                    if (k >= 0 && k < sysConfig.K) {
+                        pProcReadyList[k].push_back(ev.rid);
+                    }
                 }
-            } else if (ev.direction == "DOWN") {
+            } else if (strcmp(ev.direction, "DOWN") == 0) {
                 if (ev.rid >= 0 && ev.rid < static_cast<int>(requests.size())) {
                     requests[ev.rid].stage = RequestStage::P_POST_READY;
+                    pPostReadyList.push_back(ev.rid);
                 }
             }
-        } else if (ev.stage_tag == "DEC") {
-            if (ev.direction == "UP") {
-                for (int rid : ev.rids) {
+        } else if (strcmp(ev.stage_tag, "DEC") == 0) {
+            if (strcmp(ev.direction, "UP") == 0) {
+                for (int i = 0; i < ev.m; ++i) {
+                    int rid = ev.rids[i];
                     if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                         requests[rid].decodeUpReady = true;
                         requests[rid].stage = RequestStage::D_PROC_READY;
+                        int k = requests[rid].assignedRemote;
+                        if (k >= 0 && k < sysConfig.K) {
+                            dProcReadyList[k].push_back(rid);
+                        }
                     }
                 }
-            } else if (ev.direction == "DOWN") {
-                for (int rid : ev.rids) {
+            } else if (strcmp(ev.direction, "DOWN") == 0) {
+                for (int i = 0; i < ev.m; ++i) {
+                    int rid = ev.rids[i];
                     if (rid >= 0 && rid < static_cast<int>(requests.size())) {
                         requests[rid].decodeDownReady = true;
                         requests[rid].stage = RequestStage::D_POST_READY;
+                        dPostReadyList.push_back(rid);
                     }
                 }
             }
@@ -245,6 +239,8 @@ void StateTracker::applyFinishes(const FrameDelta& delta) {
         if (ev.rid >= 0 && ev.rid < static_cast<int>(requests.size())) {
             requests[ev.rid].finished = true;
             requests[ev.rid].stage = RequestStage::FINISHED;
+            removeFromVec(dPreReadyList, ev.rid);
+            removeFromVec(dPostReadyList, ev.rid);
         }
     }
 }
@@ -261,20 +257,30 @@ void StateTracker::markTaskAssigned(const Task& task) {
             switch (task.type) {
                 case TaskType::P_PRE:
                     requests[rid].stage = RequestStage::P_PRE_IN_FLIGHT;
+                    removeFromVec(pPreReadyList, rid);
                     break;
                 case TaskType::P_PROC:
                     requests[rid].stage = RequestStage::P_PROC_IN_FLIGHT;
+                    if (task.server >= 0 && task.server < sysConfig.K) {
+                        removeFromVec(pProcReadyList[task.server], rid);
+                    }
                     break;
                 case TaskType::P_POST:
+                    removeFromVec(pPostReadyList, rid);
                     break;
                 case TaskType::D_PRE:
                     requests[rid].stage = RequestStage::D_PRE_IN_FLIGHT;
+                    removeFromVec(dPreReadyList, rid);
                     break;
                 case TaskType::D_PROC:
                     requests[rid].stage = RequestStage::D_PROC_IN_FLIGHT;
+                    if (task.server >= 0 && task.server < sysConfig.K) {
+                        removeFromVec(dProcReadyList[task.server], rid);
+                    }
                     break;
                 case TaskType::D_POST:
                     requests[rid].stage = RequestStage::D_POST_IN_FLIGHT;
+                    removeFromVec(dPostReadyList, rid);
                     break;
             }
         }

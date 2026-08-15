@@ -1,16 +1,18 @@
 #include "output.hpp"
-#include <unistd.h>
-#include <string>
+#include <cstdio>
+#include <cstring>
+#include <algorithm>
 
 static char intBuf[16];
+static char g_outStaticBuf[4096];
 
-static inline void appendInt(std::string& s, int val) {
+static inline void appendIntToBuf(char*& p, int val) {
     if (val == 0) {
-        s += '0';
+        *p++ = '0';
         return;
     }
     if (val < 0) {
-        s += '-';
+        *p++ = '-';
         val = -val;
     }
     int pos = 0;
@@ -19,84 +21,85 @@ static inline void appendInt(std::string& s, int val) {
         val /= 10;
     }
     while (pos > 0) {
-        s += intBuf[--pos];
+        *p++ = intBuf[--pos];
     }
 }
 
 void OutputWriter::writeAssignments(std::ostream& os, const std::vector<Task>& assignments) {
     if (assignments.empty()) {
-        static const char zeroResp[] = "0\n";
-        write(STDOUT_FILENO, zeroResp, 2);
+        fputs("0\n", stdout);
+        fflush(stdout);
         return;
     }
 
-    std::string outBuf;
-    outBuf.reserve(256);
+    char* p = g_outStaticBuf;
 
-    appendInt(outBuf, static_cast<int>(assignments.size()));
-    outBuf += '\n';
+    appendIntToBuf(p, static_cast<int>(assignments.size()));
+    *p++ = '\n';
 
     for (const auto& task : assignments) {
         if (task.server == -1) {
-            outBuf += 'E';
+            *p++ = 'E';
         } else {
-            outBuf += 'C';
-            appendInt(outBuf, task.server);
+            *p++ = 'C';
+            appendIntToBuf(p, task.server);
         }
-        outBuf += ' ';
+        *p++ = ' ';
 
         switch (task.type) {
             case TaskType::P_PRE:
-                outBuf += "P PRE ";
-                appendInt(outBuf, task.remote);
-                outBuf += ' ';
-                appendInt(outBuf, task.requests[0]);
+                memcpy(p, "P PRE ", 6); p += 6;
+                appendIntToBuf(p, task.remote);
+                *p++ = ' ';
+                appendIntToBuf(p, task.requests[0]);
                 break;
             case TaskType::P_PROC:
-                outBuf += "P PROC ";
-                appendInt(outBuf, task.ls);
-                outBuf += ' ';
-                appendInt(outBuf, task.le);
-                outBuf += ' ';
-                appendInt(outBuf, task.remote);
-                outBuf += ' ';
-                appendInt(outBuf, task.requests[0]);
+                memcpy(p, "P PROC ", 7); p += 7;
+                appendIntToBuf(p, task.ls);
+                *p++ = ' ';
+                appendIntToBuf(p, task.le);
+                *p++ = ' ';
+                appendIntToBuf(p, task.remote);
+                *p++ = ' ';
+                appendIntToBuf(p, task.requests[0]);
                 break;
             case TaskType::P_POST:
-                outBuf += "P POST ";
-                appendInt(outBuf, task.remote);
-                outBuf += ' ';
-                appendInt(outBuf, task.requests[0]);
+                memcpy(p, "P POST ", 7); p += 7;
+                appendIntToBuf(p, task.remote);
+                *p++ = ' ';
+                appendIntToBuf(p, task.requests[0]);
                 break;
             case TaskType::D_PRE:
-                outBuf += "D PRE -1 ";
-                appendInt(outBuf, task.m);
+                memcpy(p, "D PRE -1 ", 9); p += 9;
+                appendIntToBuf(p, task.m);
                 for (int r : task.requests) {
-                    outBuf += ' ';
-                    appendInt(outBuf, r);
+                    *p++ = ' ';
+                    appendIntToBuf(p, r);
                 }
                 break;
             case TaskType::D_PROC:
-                outBuf += "D PROC ";
-                appendInt(outBuf, task.remote);
-                outBuf += ' ';
-                appendInt(outBuf, task.m);
+                memcpy(p, "D PROC ", 7); p += 7;
+                appendIntToBuf(p, task.remote);
+                *p++ = ' ';
+                appendIntToBuf(p, task.m);
                 for (int r : task.requests) {
-                    outBuf += ' ';
-                    appendInt(outBuf, r);
+                    *p++ = ' ';
+                    appendIntToBuf(p, r);
                 }
                 break;
             case TaskType::D_POST:
-                outBuf += "D POST -1 ";
-                appendInt(outBuf, task.m);
+                memcpy(p, "D POST -1 ", 10); p += 10;
+                appendIntToBuf(p, task.m);
                 for (int r : task.requests) {
-                    outBuf += ' ';
-                    appendInt(outBuf, r);
+                    *p++ = ' ';
+                    appendIntToBuf(p, r);
                 }
                 break;
         }
-        outBuf += '\n';
+        *p++ = '\n';
     }
 
-    write(STDOUT_FILENO, outBuf.data(), outBuf.size());
+    *p = '\0';
+    fputs(g_outStaticBuf, stdout);
+    fflush(stdout);
 }

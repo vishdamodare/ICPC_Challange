@@ -4,25 +4,24 @@
 #include <string>
 #include <vector>
 #include <iostream>
-#include <sstream>
 
 struct SystemConfig {
-    int K = 1;
-    double S = 1.0;
-    double latency_in_ms = 2.0;
-    double bandwidth_gbps = 1.0;
-    long long bytes_per_token = 125000;
-    int num_layers = 4;
+    int K = 0;
+    double S = 0.0;
+    double latency_in_ms = 0.0;
+    double bandwidth_gbps = 0.0;
+    long long bytes_per_token = 0;
+    int num_layers = 0;
 };
 
 struct ScoringConfig {
-    double SLO1 = 30.0;
-    double SLO2 = 15.0;
-    double tp_UB = 0.0625;
-    double tp_base = 0.022222222;
+    double SLO1 = 0.0;
+    double SLO2 = 0.0;
+    double tp_UB = 0.0;
+    double tp_base = 0.0;
     double dist_base = 0.0;
-    double w_tp = 0.5;
-    double w_c = 0.5;
+    double w_tp = 0.0;
+    double w_c = 0.0;
 };
 
 enum class EventType {
@@ -36,19 +35,15 @@ struct Event {
     EventType type;
     int rid = -1;
     int Lin = 0;
-    
-    // TDN fields
-    std::string server;      // "E", "C0", ...
-    std::string task_spec;   // Echoed task specification string
+    char server[8] = {0};
+    char task_spec[64] = {0};
     double dur = 0.0;
-
-    // XDN fields
-    std::string direction;   // "UP" or "DOWN"
-    int remote = 0;
+    char direction[8] = {0};
+    int remote = -1;
     long long size = 0;
-    std::string stage_tag;   // "PRE" or "DEC"
+    char stage_tag[8] = {0};
     int m = 0;
-    std::vector<int> rids;
+    int rids[64] = {0};
 };
 
 struct FrameContext {
@@ -60,9 +55,9 @@ struct FrameContext {
 
 class InteractiveIO {
 public:
-    static SystemConfig parseSystemConfig(std::istream& in);
-    static ScoringConfig parseScoringConfig(std::istream& in);
-    static FrameContext parseFrame(std::istream& in);
+    static SystemConfig parseSystemConfig(std::istream& is);
+    static ScoringConfig parseScoringConfig(std::istream& is);
+    static FrameContext parseFrame(std::istream& is);
 };
 
 #endif // PROTOCOL_HPP

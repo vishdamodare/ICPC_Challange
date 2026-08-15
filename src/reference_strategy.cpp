@@ -4,62 +4,75 @@
 std::vector<Task> ReferenceStrategy::selectTasks(const StateTracker& state, const std::vector<Task>& candidates) {
     std::vector<Task> selected;
 
-    // Edge task selection
-    Task bestEdgeTask;
-    bool foundEdge = false;
-    int bestEdgePriority = -1; // Higher is better: 3=P_POST, 2=D_POST, 1=D_PRE, 0=P_PRE
+    // 1. Edge task selection (Edge max 1 task per turn)
+    if (!state.edgeServer.busy) {
+        const auto& dpostReady = state.dPostReadyList;
+        const auto& ppostReady = state.pPostReadyList;
+        const auto& dpreReady = state.dPreReadyList;
+        const auto& ppreReady = state.pPreReadyList;
 
-    for (const auto& task : candidates) {
-        if (task.server != -1) continue;
-
-        int priority = -1;
-        if (task.type == TaskType::P_POST) priority = 3;
-        else if (task.type == TaskType::D_POST) priority = 2;
-        else if (task.type == TaskType::D_PRE) priority = 1;
-        else if (task.type == TaskType::P_PRE) {
-            // Check if this P PRE matches round-robin cloud
+        if (!dpostReady.empty()) {
+            Task t;
+            t.type = TaskType::D_POST;
+            t.server = -1;
+            t.remote = -1;
+            t.m = 1;
+            t.requests = {dpostReady[0]};
+            selected.push_back(t);
+        } else if (!ppostReady.empty()) {
+            Task t;
+            t.type = TaskType::P_POST;
+            t.server = -1;
+            t.remote = state.requests[ppostReady[0]].assignedRemote;
+            t.m = 1;
+            t.requests = {ppostReady[0]};
+            selected.push_back(t);
+        } else if (!dpreReady.empty()) {
+            Task t;
+            t.type = TaskType::D_PRE;
+            t.server = -1;
+            t.remote = -1;
+            t.m = 1;
+            t.requests = {dpreReady[0]};
+            selected.push_back(t);
+        } else if (!ppreReady.empty()) {
             int targetRemote = roundRobinCounter % state.sysConfig.K;
-            if (task.remote == targetRemote) {
-                priority = 0;
-            }
-        }
-
-        if (priority > bestEdgePriority) {
-            bestEdgePriority = priority;
-            bestEdgeTask = task;
-            foundEdge = true;
-        }
-    }
-
-    if (foundEdge) {
-        selected.push_back(bestEdgeTask);
-        if (bestEdgeTask.type == TaskType::P_PRE) {
             roundRobinCounter++;
+            Task t;
+            t.type = TaskType::P_PRE;
+            t.server = -1;
+            t.remote = targetRemote;
+            t.m = 1;
+            t.requests = {ppreReady[0]};
+            selected.push_back(t);
         }
     }
 
-    // Cloud task selection (per cloud k)
+    // 2. Cloud task selection (per cloud k)
     for (int k = 0; k < state.sysConfig.K; ++k) {
-        Task bestCloudTask;
-        bool foundCloud = false;
-        int bestCloudPriority = -1; // 1=D_PROC, 0=P_PROC
+        if (!state.cloudServers[k].busy) {
+            const auto& dprocReady = state.dProcReadyList[k];
+            const auto& pprocReady = state.pProcReadyList[k];
 
-        for (const auto& task : candidates) {
-            if (task.server != k) continue;
-
-            int priority = -1;
-            if (task.type == TaskType::D_PROC) priority = 1;
-            else if (task.type == TaskType::P_PROC) priority = 0;
-
-            if (priority > bestCloudPriority) {
-                bestCloudPriority = priority;
-                bestCloudTask = task;
-                foundCloud = true;
+            if (!dprocReady.empty()) {
+                Task t;
+                t.type = TaskType::D_PROC;
+                t.server = k;
+                t.remote = k;
+                t.m = 1;
+                t.requests = {dprocReady[0]};
+                selected.push_back(t);
+            } else if (!pprocReady.empty()) {
+                Task t;
+                t.type = TaskType::P_PROC;
+                t.server = k;
+                t.remote = k;
+                t.ls = state.requests[pprocReady[0]].nextLayerStart;
+                t.le = state.sysConfig.num_layers;
+                t.m = 1;
+                t.requests = {pprocReady[0]};
+                selected.push_back(t);
             }
-        }
-
-        if (foundCloud) {
-            selected.push_back(bestCloudTask);
         }
     }
 

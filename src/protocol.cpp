@@ -83,31 +83,34 @@ static inline double fastParseDouble(const char*& p) {
     return neg ? -res : res;
 }
 
+static FrameContext g_reusableFrame;
+
 FrameContext InteractiveIO::parseFrame(std::istream& is) {
-    FrameContext frame;
+    g_reusableFrame.events.clear();
+    g_reusableFrame.isEnd = false;
     
     if (!getNextLine(is, lineBuf, sizeof(lineBuf))) {
-        frame.isEnd = true;
-        return frame;
+        g_reusableFrame.isEnd = true;
+        return g_reusableFrame;
     }
 
     if (lineBuf[0] == 'E' && lineBuf[1] == 'N' && lineBuf[2] == 'D') {
-        frame.isEnd = true;
-        return frame;
+        g_reusableFrame.isEnd = true;
+        return g_reusableFrame;
     }
 
     const char* ptr = lineBuf;
-    frame.timestamp = fastParseDouble(ptr);
+    g_reusableFrame.timestamp = fastParseDouble(ptr);
 
     if (!getNextLine(is, lineBuf, sizeof(lineBuf))) {
-        frame.isEnd = true;
-        return frame;
+        g_reusableFrame.isEnd = true;
+        return g_reusableFrame;
     }
 
     ptr = lineBuf;
     int count = fastParseInt(ptr);
-    frame.eventCount = count;
-    frame.events.reserve(count);
+    g_reusableFrame.eventCount = count;
+    g_reusableFrame.events.reserve(count);
 
     for (int i = 0; i < count; ++i) {
         if (!getNextLine(is, lineBuf, sizeof(lineBuf))) break;
@@ -128,17 +131,24 @@ FrameContext InteractiveIO::parseFrame(std::istream& is) {
             
             const char* startServer = ptr;
             while (*ptr && *ptr > ' ') ptr++;
-            ev.server.assign(startServer, ptr - startServer);
+            size_t sLen = std::min<size_t>(ptr - startServer, sizeof(ev.server) - 1);
+            memcpy(ev.server, startServer, sLen);
+            ev.server[sLen] = '\0';
 
             const char* rest = ptr;
             while (*rest && *rest <= ' ') rest++;
             const char* lastSpace = strrchr(rest, ' ');
             if (lastSpace) {
-                ev.task_spec.assign(rest, lastSpace - rest);
+                size_t specLen = std::min<size_t>(lastSpace - rest, sizeof(ev.task_spec) - 1);
+                memcpy(ev.task_spec, rest, specLen);
+                ev.task_spec[specLen] = '\0';
+
                 const char* durPtr = lastSpace + 1;
                 ev.dur = fastParseDouble(durPtr);
             } else {
-                ev.task_spec = rest;
+                size_t specLen = std::min<size_t>(strlen(rest), sizeof(ev.task_spec) - 1);
+                memcpy(ev.task_spec, rest, specLen);
+                ev.task_spec[specLen] = '\0';
                 ev.dur = 0.0;
             }
         } else if (ptr[0] == 'X' && ptr[1] == 'D' && ptr[2] == 'N') {
@@ -147,10 +157,10 @@ FrameContext InteractiveIO::parseFrame(std::istream& is) {
             while (*ptr && *ptr <= ' ') ptr++;
             
             if (ptr[0] == 'U' && ptr[1] == 'P') {
-                ev.direction = "UP";
+                ev.direction[0] = 'U'; ev.direction[1] = 'P'; ev.direction[2] = '\0';
                 ptr += 2;
             } else if (ptr[0] == 'D' && ptr[1] == 'O' && ptr[2] == 'W' && ptr[3] == 'N') {
-                ev.direction = "DOWN";
+                ev.direction[0] = 'D'; ev.direction[1] = 'O'; ev.direction[2] = 'W'; ev.direction[3] = 'N'; ev.direction[4] = '\0';
                 ptr += 4;
             }
 
@@ -160,22 +170,24 @@ FrameContext InteractiveIO::parseFrame(std::istream& is) {
             while (*ptr && *ptr <= ' ') ptr++;
             const char* startTag = ptr;
             while (*ptr && *ptr > ' ') ptr++;
-            ev.stage_tag.assign(startTag, ptr - startTag);
+            size_t tagLen = std::min<size_t>(ptr - startTag, sizeof(ev.stage_tag) - 1);
+            memcpy(ev.stage_tag, startTag, tagLen);
+            ev.stage_tag[tagLen] = '\0';
 
             ev.m = fastParseInt(ptr);
-            ev.rids.resize(ev.m);
-            for (int r = 0; r < ev.m; ++r) {
+            int fetchCount = std::min<int>(ev.m, 64);
+            for (int r = 0; r < fetchCount; ++r) {
                 ev.rids[r] = fastParseInt(ptr);
             }
-            if (!ev.rids.empty()) ev.rid = ev.rids[0];
+            if (fetchCount > 0) ev.rid = ev.rids[0];
         } else if (ptr[0] == 'F' && ptr[1] == 'I' && ptr[2] == 'N') {
             ptr += 3;
             ev.type = EventType::FIN;
             ev.rid = fastParseInt(ptr);
         }
 
-        frame.events.push_back(ev);
+        g_reusableFrame.events.push_back(ev);
     }
 
-    return frame;
+    return g_reusableFrame;
 }
