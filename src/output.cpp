@@ -4,7 +4,7 @@
 #include <algorithm>
 
 static char intBuf[16];
-static char g_outStaticBuf[4096];
+static char g_outStaticBuf[1048576]; // 1MB static output buffer for large decode batches
 
 static inline void appendIntToBuf(char*& p, int val) {
     if (val == 0) {
@@ -98,7 +98,6 @@ void OutputWriter::writeAssignments(std::ostream& os, const std::vector<Task>& a
         }
         *p++ = '\n';
     }
-
     *p = '\0';
     fputs(g_outStaticBuf, stdout);
     fflush(stdout);
