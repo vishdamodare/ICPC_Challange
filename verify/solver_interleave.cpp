@@ -1,4 +1,4 @@
-// ICPC 2026 Huawei Challenge - Submission v5.0 (Shortest-Job-First Prefill + Load Balancing)
+// ICPC 2026 Huawei Challenge - Submission v4.0 (Equal-Queue Round-Robin & Load Balance)
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -604,7 +604,7 @@ public:
 };
 
 // ============================================================================
-// 5. SCHEDULING STRATEGY (SHORTEST-JOB-FIRST PREFILL v5.0)
+// 5. SCHEDULING STRATEGY (EQUAL-QUEUE ROUND-ROBIN & LOAD BALANCE v4.0)
 // ============================================================================
 
 class SchedulingStrategy {
@@ -637,14 +637,10 @@ public:
         t.requests = {rid};
         selected.push_back(t);
       } else if (!state.pPreReadyList.empty()) {
-        // SJF Prefill Ordering: Sort ready prefill requests by input length Lin ascending
-        std::vector<int> sortedPPre = state.pPreReadyList;
-        std::sort(sortedPPre.begin(), sortedPPre.end(), [&](int a, int b) {
-          return state.requests[a].Lin < state.requests[b].Lin;
-        });
-        int rid = sortedPPre[0];
-
-        // Equal-Queue Round-Robin & Load Balancing
+        int rid = state.pPreReadyList[0];
+        // Equal-Queue Round-Robin & Load Balancing:
+        // Use Round-Robin (rid % K) if all cloud prefill queues are equal,
+        // otherwise assign to the cloud server with the shortest prefill queue.
         int targetRemote = rid % state.sysConfig.K;
         int minCount = 1e9;
         int maxCount = -1;
@@ -694,14 +690,18 @@ public:
       if (state.cloudServers[k].busy)
         continue;
 
-      if (!state.pProcReadyList[k].empty()) {
-        // SJF Prefill Processing on Cloud: Sort pProcReadyList[k] by Lin ascending
-        std::vector<int> sortedPProc = state.pProcReadyList[k];
-        std::sort(sortedPProc.begin(), sortedPProc.end(), [&](int a, int b) {
-          return state.requests[a].Lin < state.requests[b].Lin;
-        });
-        int rid = sortedPProc[0];
+      bool preferDecode = (state.cloudServers[k].currentTask.type == TaskType::P_PROC);
 
+      if (preferDecode && !state.dProcReadyList[k].empty()) {
+        Task t;
+        t.type = TaskType::D_PROC;
+        t.server = k;
+        t.remote = k;
+        t.m = static_cast<int>(state.dProcReadyList[k].size());
+        t.requests = state.dProcReadyList[k];
+        selected.push_back(t);
+      } else if (!state.pProcReadyList[k].empty()) {
+        int rid = state.pProcReadyList[k][0];
         Task t;
         t.type = TaskType::P_PROC;
         t.server = k;
