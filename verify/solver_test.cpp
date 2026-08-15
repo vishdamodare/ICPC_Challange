@@ -603,7 +603,7 @@ public:
 };
 
 // ============================================================================
-// 5. SCHEDULING STRATEGY (V2 GREEDY BATCH)
+// 5. SCHEDULING STRATEGY (OPTIMIZED PREFILL-FIRST PRIORITY)
 // ============================================================================
 
 class SchedulingStrategy {
@@ -637,7 +637,17 @@ public:
         selected.push_back(t);
       } else if (!state.pPreReadyList.empty()) {
         int rid = state.pPreReadyList[0];
-        int targetRemote = rid % state.sysConfig.K;
+        int targetRemote = 0;
+        int minLoad = 1e9;
+        for (int k = 0; k < state.sysConfig.K; ++k) {
+          int load = (state.cloudServers[k].busy ? 10 : 0) + 
+                     static_cast<int>(state.pProcReadyList[k].size()) * 2 + 
+                     static_cast<int>(state.dProcReadyList[k].size());
+          if (load < minLoad) {
+            minLoad = load;
+            targetRemote = k;
+          }
+        }
         Task t;
         t.type = TaskType::P_PRE;
         t.server = -1;
