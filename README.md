@@ -69,11 +69,3 @@ clang++ -std=c++17 -O3 tests/ipc_benchmark_50runs.cpp src/protocol.cpp src/task_
 ```
 
 ---
-
-## Submission Candidate Metadata
-
-- **Git Commit SHA**: `ee738397099b553fd501291c84d31e95b1e6b5a3`
-- **Release Tag**: `contest-final-v1.0` (Immutable)
-- **Rollback Tag**: `contest-safe-v2` (Preserved)
-- **Binary SHA-256 Checksum**: `f6cf635c04c17bc82df3c24e07f7a435dab5c83804335dbfb9000500567511f5`
-- **Status**: **SUBMISSION CANDIDATE LOCKED**
